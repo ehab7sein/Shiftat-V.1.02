@@ -542,17 +542,28 @@ SELECT cron.schedule(
 CREATE OR REPLACE FUNCTION handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-  INSERT INTO public.profiles (id, phone, user_type, full_name)
-  VALUES (
-    NEW.id,
-    COALESCE(NEW.phone, ''),
-    COALESCE((NEW.raw_user_meta_data->>'user_type')::user_type, 'worker'),
-    COALESCE(NEW.raw_user_meta_data->>'full_name', '')
-  )
-  ON CONFLICT (id) DO NOTHING;
+  BEGIN
+    INSERT INTO public.profiles (id, phone, user_type, full_name)
+    VALUES (
+      NEW.id,
+      COALESCE(NEW.phone, NEW.raw_user_meta_data->>'phone', ''),
+      COALESCE((NEW.raw_user_meta_data->>'user_type')::user_type, 'worker'),
+      COALESCE(NEW.raw_user_meta_data->>'full_name', 'مستخدم جديد')
+    )
+    ON CONFLICT (id) DO UPDATE SET
+      phone = EXCLUDED.phone,
+      user_type = EXCLUDED.user_type,
+      full_name = EXCLUDED.full_name,
+      updated_at = NOW();
+  EXCEPTION WHEN OTHERS THEN
+    -- If something fails (like phone unique constraint), 
+    -- we allow the auth user to be created anyway.
+    RETURN NEW;
+  END;
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
 
 CREATE TRIGGER trg_on_auth_user_created
   AFTER INSERT ON auth.users
